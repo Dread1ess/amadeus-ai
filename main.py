@@ -84,6 +84,28 @@ STICKER_PACKS = ["kurisu_II", "kurisu_I"]
 # Matches the emotion tag the model appends at the end of a reply, e.g. [sticker=😠].
 STICKER_TAG_RE = re.compile(r"\[sticker=([^\]]+)\]")
 
+# Emojis the model may use to signal emotion. Used to detect a matching sticker
+# when the reply carries an emotion emoji but no explicit tag (e.g. DeepSeek).
+ALLOWED_STICKER_EMOJIS = [
+    "😠", "😡", "😒", "😳", "😯", "😮💨", "😵💫", "🥱", "😬",
+    "😊", "😃", "😄", "😎", "😌", "🙂", "🤗", "🙃", "👍", "👋",
+    "🤔", "🧐", "😴", "😤", "🤕", "😦", "😐", "👌", "🫣", "🥴",
+]
+
+# Emojis that are not in the sticker packs but are commonly used by models,
+# mapped to a visually or emotionally equivalent emoji that is available.
+EMOJI_FALLBACK_MAP = {
+    "😏": "😒", "🙄": "😒", "😅": "😌", "😆": "😄", "😂": "😃",
+    "🤣": "😄", "😁": "😄", "😉": "😎", "😋": "🙂", "😝": "🙃",
+    "😜": "🙃", "🤪": "🙃", "😢": "🤕", "😭": "🤕", "😩": "😮💨",
+    "😫": "🥱", "😪": "🥱", "🤬": "😠", "😤": "😤", "🤯": "😵💫",
+    "😱": "😳", "😨": "😯", "😰": "😯", "😥": "😦", "🤤": "🥴",
+    "🤢": "🤕", "🥳": "😃", "🥺": "🤗", "🥰": "🤗", "😍": "😳",
+    "👏": "👍", "🙌": "👌", "🤨": "🧐", "🤩": "😃", "🤫": "😐",
+    "😶": "😐", "😑": "😐", "🤐": "😐", "😮": "😯", "😲": "😯",
+    "🥲": "😌", "🫠": "🥴", "🤭": "🙃",
+}
+
 # Stickers are never sent on every reply. These settings limit how often they
 # appear even when the model marks a reply as emotional.
 STICKER_CHANCE = 0.5
@@ -251,6 +273,22 @@ def get_sticker_for_emoji(emoji: str) -> Optional[str]:
     return random.choice(file_ids)
 
 
+def detect_emoji_in_text(text: str) -> Optional[str]:
+    """Return the first emotion emoji present in the text, or None.
+
+    Checks the known sticker emojis first, then falls back to mapping common
+    emojis to a sticker-pack equivalent. Serves as a fallback for models that
+    do not emit the explicit sticker tag.
+    """
+    for emoji in ALLOWED_STICKER_EMOJIS:
+        if emoji in text:
+            return emoji
+    for emoji, replacement in EMOJI_FALLBACK_MAP.items():
+        if emoji in text:
+            return replacement
+    return None
+
+
 async def ask_ai(
     user_id: int, message: str, model: str = None, language: str = None
 ) -> Tuple[str, str, Optional[str]]:
@@ -343,6 +381,8 @@ async def ask_ai(
                     if tag_match:
                         sticker_emoji = tag_match.group(1).strip()
                         bot_reply = STICKER_TAG_RE.sub("", bot_reply).strip()
+                    else:
+                        sticker_emoji = detect_emoji_in_text(bot_reply)
 
                     add_to_history(user_id, "assistant", bot_reply)
                     return bot_reply, used_model, sticker_emoji
