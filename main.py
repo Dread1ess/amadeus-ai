@@ -347,23 +347,23 @@ async def call_model(
                     data = await response.json()
 
                     if data.get("error"):
-                        logger.error("AI API error for %s: %s", model_key, data["error"])
+                        logger.warning("AI API error for %s: %s", model_key, data["error"])
                         return None
 
                     choices = data.get("choices") or []
                     if not choices:
-                        logger.error("AI API returned no choices for %s: %s", model_key, str(data)[:500])
+                        logger.warning("AI API returned no choices for %s: %s", model_key, str(data)[:500])
                         return None
 
                     return choices[0]["message"]["content"]
 
                 error_text = await response.text()
-                logger.error("AI API error %s for %s: %s", response.status, model_key, error_text[:500])
+                logger.warning("AI API error %s for %s: %s", response.status, model_key, error_text[:300])
                 if response.status == 429 or response.status >= 500:
                     model_cooldown_until[model_key] = time.time() + MODEL_COOLDOWN_SECONDS
                 return None
     except asyncio.TimeoutError:
-        logger.error("AI API timeout for %s", model_key)
+        logger.warning("AI API timeout for %s", model_key)
         model_cooldown_until[model_key] = time.time() + MODEL_COOLDOWN_SECONDS
         return None
     except Exception:
