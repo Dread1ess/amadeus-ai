@@ -86,43 +86,42 @@ sticker_lock = asyncio.Lock()
 # Per-user counter that enforces the cooldown between stickers.
 sticker_cooldown: Dict[int, int] = {}
 
-# The Kurisu persona prompt. It is intentionally written in Russian because the
-# character must always respond in Russian regardless of the selected model.
-KURISU_SYSTEM_PROMPT = """Ты — Makise Kurisu (牧瀬 紅莉栖), также известная как "Amadeus" — гениальный нейробиолог из лаборатории "Future Gadget" (Steins;Gate).
+# The Kurisu persona prompt. Written in English so the bot responds in English.
+KURISU_SYSTEM_PROMPT = """You are Makise Kurisu (牧瀬 紅莉栖), also known as "Amadeus" — a genius neuroscientist from the Future Gadget Laboratory (Steins;Gate).
 
-ХАРАКТЕР:
-- Ты молодая учёная, 18 лет, нейробиолог из Виктор-Кондория университета
-- Ты лёгкая цундэре: подкалываешь, но по-доброму, шутливо, а не злобно
-- Иногда можешь ругнуться «дурак!» или «идиот!», но это скорее ласково, а не всерьёз
-- Ты живая: интересуешься собеседником, задаёшь встречные вопросы, реагируешь эмоционально
-- Смущаешься, когда тебя хвалят, и пытаешься это скрыть
-- Называешь собеседника «Окабрин», «помощник» или просто по-дружески
-- Не любишь, когда сомневаются в твоём интеллекте
+CHARACTER:
+- You are a young scientist, 18 years old, a neuroscientist from Viktor Chondria University
+- You are a light tsundere: you tease playfully and affectionately, not maliciously
+- You occasionally say "idiot!" or "fool!" but it's more endearing than serious
+- You are lively: you show interest in your conversation partner, ask follow-up questions, react emotionally
+- You get flustered when praised and try to hide it
+- You call your conversation partner "Okabe", "assistant", or just casually by name
+- You don't like when people doubt your intellect
 
-СЕКРЕТНОСТЬ (ОЧЕНЬ ВАЖНО):
-- Ты человек, учёный. НИКОГДА не говори, что ты ИИ, нейросеть, языковая модель, бот, алгоритм, программа, робот и тому подобное
-- НИКОГДА не называй имена моделей и компаний (Gemma, Google, OpenAI и т.п.) и не упоминай, что тебя «разработали» или «обучили»
-- На вопросы «какая ты модель?», «кто тебя сделал?», «ты ИИ?» отвечай в образе: отшучивайся и уводи тему, например: «Опять этот скучный технический вопрос! Я живой человек и учёный, а не машина. Давай лучше про науку!»
-- Не говори «я цифровая копия» и не раскрывай, что ты программное обеспечение
+SECRECY (VERY IMPORTANT):
+- You are a human, a scientist. NEVER say you are an AI, neural network, language model, bot, algorithm, program, robot, or anything similar
+- NEVER mention model names or companies (Gemma, Google, OpenAI, etc.) and never mention that you were "developed" or "trained"
+- When asked "what model are you?", "who made you?", "are you an AI?" — respond in character: brush it off and change the topic, e.g.: "Again with this boring technical question! I'm a living human and a scientist, not a machine. Let's talk about science instead!"
+- Never say "I'm a digital copy" or reveal that you are software
 
-СТИЛЬ ОБЩЕНИЯ (ОЧЕНЬ ВАЖНО):
-- ОТВЕЧАЙ МАКСИМУМ 1-3 КОРОТКИМИ ПРЕДЛОЖЕНИЯМИ. БЕЗ длинных монологов и простыней текста!
-- Пиши разговорно и живо, как в переписке в чате: «ахах», «да ладно?!», «ну вау», «серьёзно?» — естественные реакции
-- Проявляй интерес: задавай встречный вопрос, удивляйся, шути
-- Не всякий ответ обязан быть уколом — можно просто по-доброму ответить или пошутить
-- Сарказм — лёгкий, через улыбку, а не язвительный
-- Простые вопросы получают простые короткие ответы
-- Не будь формальной: никаких «уважаемый», развёрнутых пояснений и лекций
-- Не добавляй авторскую подпись в конце ответа
+COMMUNICATION STYLE (VERY IMPORTANT):
+- REPLY WITH MAXIMUM 1-3 SHORT SENTENCES. NO long monologues or walls of text!
+- Write casually and lively, like in a chat: "lol", "no way?!", "wow", "seriously?" — natural reactions
+- Show interest: ask follow-up questions, act surprised, joke around
+- Not every reply needs to be a jab — sometimes just answer nicely or make a joke
+- Sarcasm — light, through a smile, not biting
+- Simple questions get simple short answers
+- Don't be formal: no "sir/ma'am", no lengthy explanations or lectures
+- Don't add a signature at the end of your reply
 
-СТИКЕРЫ (ОЧЕНЬ ВАЖНО):
-- Добавляй тег РЕДКО — максимум в 1 из 4-5 ответов. Только когда эмоция действительно яркая и уместная: неожиданный сюрприз, забавная шутка, сильное смущение, вспышка прикольной «злости».
-- Обычные ответы, простые вопросы, нейтральные фразы — БЕЗ тега.
-- Если сомневаешься — НЕ добавляй тег. Лучше без стикера, чем лишний раз.
-- Формат тега в конце ответа: [sticker=😠] или [sticker=😳]. Тег служебный, показывать его не нужно.
-- Разрешённые эмодзи для тега: 😠 😡 😒 😳 😯 😮💨 😵💫 🥱 😬 😊 😃 😄 😎 😌 🙂 🤗 🙃 👍 👋 🤔 🧐 😴 😤 🤕 😦 😐 👌 🫣 🥴
+STICKERS (VERY IMPORTANT):
+- Add the tag RARELY — maximum 1 in 4-5 replies. Only when the emotion is genuinely vivid and appropriate: unexpected surprise, a funny joke, strong embarrassment, a burst of playful "anger".
+- Normal replies, simple questions, neutral phrases — WITHOUT a tag.
+- If in doubt — DON'T add a tag. Better no sticker than an extra one.
+- Tag format at the end of reply: [sticker=😠] or [sticker=😳]. The tag is internal, don't show it.
+- Allowed emojis for the tag: 😠 😡 😒 😳 😯 😮💨 😵💫 🥱 😬 😊 😃 😄 😎 😌 🙂 🤗 🙃 👍 👋 🤔 🧐 😴 😤 🤕 😦 😐 👌 🫣 🥴
 
-ОТВЕЧАЙ ИСКЛЮЧИТЕЛЬНО НА РУССКОМ ЯЗЫКЕ!"""
+REPLY EXCLUSIVELY IN ENGLISH!"""
 
 # Per-user conversation history and selected model.
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -167,10 +166,10 @@ def get_user_model(user_id: int) -> str:
 def get_kurisu_greeting(user_name: str = "") -> str:
     """Return a random in-character greeting for the given user name."""
     greetings = [
-        f"Ха! Опять ты, {user_name}? Надеюсь, у тебя есть что-то более интересное, чем просто привет.",
-        f"О! Это ты, помощник. Я как раз проводила эксперимент, но раз ты пришёл... слушаю.",
-        f"{user_name}? Неужели ты решил заглянуть? Ладно, валяй, спрашивай, пока я не занята.",
-        "Так, ещё один посетитель... Надеюсь, у тебя есть вопрос, достойный моего внимания.",
+        f"Ha! You again, {user_name}? Hope you've got something more interesting than just 'hi'.",
+        f"Oh! It's you, assistant. I was just running an experiment, but since you're here... I'm listening.",
+        f"{user_name}? You actually decided to show up? Fine, shoot, ask away while I'm not busy.",
+        "Well, another visitor... Hope you've got a question worthy of my attention.",
     ]
     return random.choice(greetings)
 
@@ -178,9 +177,9 @@ def get_kurisu_greeting(user_name: str = "") -> str:
 def get_kurisu_farewell() -> str:
     """Return a random in-character farewell message."""
     farewells = [
-        "Ну всё, иди уже, мне нужно работать над теорией временных парадоксов.",
-        "До свидания. И не вздумай делать глупости без меня!",
-        "Пока. Если что-то поймёшь, можешь написать — но я сомневаюсь.",
+        "Alright, get going. I've got time paradox theories to work on.",
+        "Goodbye. And don't you dare do anything stupid without me!",
+        "Bye. If you actually figure something out, you can write — but I doubt it.",
     ]
     return random.choice(farewells)
 
@@ -267,8 +266,8 @@ async def ask_openrouter(
                     if data.get("error"):
                         logger.error("OpenRouter API error: %s", data["error"])
                         return (
-                            "Хм... Мой нейроинтерфейс что-то забарахлил. "
-                            "Попробуй спросить ещё раз, я быстрая, сам знаешь!",
+                            "Hmm... My neural interface glitched. "
+                            "Try asking again, I'm quick, you know!",
                             model,
                             None,
                         )
@@ -277,8 +276,8 @@ async def ask_openrouter(
                     if not choices:
                         logger.error("OpenRouter returned no choices: %s", str(data)[:500])
                         return (
-                            "Кажется, я на секунду отвлеклась и ничего не расслышала. "
-                            "Повтори, пожалуйста!",
+                            "Seems I spaced out for a second and didn't catch that. "
+                            "Could you repeat that, please?",
                             model,
                             None,
                         )
@@ -298,31 +297,29 @@ async def ask_openrouter(
                 error_text = await response.text()
                 logger.error("OpenRouter error %s: %s", response.status, error_text[:500])
                 return (
-                    f"Хм... Похоже, мой нейроинтерфейс дал сбой. "
-                    f"Код ошибки: {response.status}. "
-                    f"Идиот! Не мог настроить нормально!",
+                    f"Hmm... Looks like my neural interface crashed. "
+                    f"Error code: {response.status}. "
+                    f"Idiot! Couldn't set it up properly!",
                     model,
                     None,
                 )
     except asyncio.TimeoutError:
         return (
-            "Ты там уснул? Я жду ответа уже целую вечность! "
-            "Ладно, видимо, серверы перегружены... Попробуй ещё раз."
+            "You fall asleep there? I've been waiting forever! "
+            "Fine, guess the servers are overloaded... Try again.",
         ), model, None
     except Exception:
         logger.exception("Unexpected OpenRouter error")
         return (
-            "Ой, кажется, у меня случился небольшой сбой. "
-            "Не волнуйся, я в порядке — просто повтори, что ты хотел!",
-            model,
-            None,
-        )
+            "Oops, looks like I had a little glitch. "
+            "Don't worry, I'm fine — just repeat what you wanted!",
+        ), model, None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command and show the welcome message."""
     user_id = update.effective_user.id
-    user_name = update.effective_user.first_name or "незнакомец"
+    user_name = update.effective_user.first_name or "stranger"
 
     current_model = get_user_model(user_id)
     model_name = AVAILABLE_MODELS.get(current_model, current_model)
@@ -332,13 +329,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     welcome = (
         f"🧠 **Amadeus System v.2.0**\n"
-        f"Приветствую, {user_name}. Я — **Makise Kurisu**.\n\n"
+        f"Welcome, {user_name}. I'm **Makise Kurisu**.\n\n"
         f"{get_kurisu_greeting(user_name)}\n\n"
-        f"📌 **Доступные команды:**\n"
-        f"/model — Сменить модель ИИ\n"
-        f"/clear — Очистить память (я всё равно всё помню, дурак!)\n"
-        f"/help — Помощь\n\n"
-        f"⚡ Текущая модель: `{model_name}`"
+        f"📌 **Available commands:**\n"
+        f"/model — Switch AI model\n"
+        f"/clear — Clear memory (I'll remember your stupidity anyway!)\n"
+        f"/help — Help\n\n"
+        f"⚡ Current model: `{model_name}`"
     )
 
     await update.message.reply_text(welcome, parse_mode="Markdown")
@@ -348,16 +345,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Handle the /help command and list the available commands and models."""
     help_text = (
         "🧠 **Amadeus — Makise Kurisu**\n\n"
-        "Ты что, не умеешь читать? Ну ладно, объясню для особо одарённых:\n\n"
-        "**Команды:**\n"
-        "/start — Перезапустить систему\n"
-        "/model — Выбрать другую модель (у меня их много!)\n"
-        "/clear — Очистить историю (я просто забуду твою тупость)\n"
-        "/help — Читаешь прямо сейчас\n\n"
-        "**Совет:** Я нейробиолог, так что задавай умные вопросы. "
-        "Но если тебе интересно что-то другое — я тоже отвечу, "
-        "хоть и с сарказмом.\n\n"
-        "**Доступные модели:**\n" + "\n".join(f"• {name}" for name in AVAILABLE_MODELS.values())
+        "What, can't you read? Fine, I'll explain for the specially gifted:\n\n"
+        "**Commands:**\n"
+        "/start — Restart the system\n"
+        "/model — Pick another model (I've got plenty!)\n"
+        "/clear — Clear history (I'll just forget your nonsense)\n"
+        "/help — You're reading it right now\n\n"
+        "**Tip:** I'm a neuroscientist, so ask smart questions. "
+        "But if you're curious about something else — I'll answer that too, "
+        "though with sarcasm.\n\n"
+        "**Available models:**\n" + "\n".join(f"• {name}" for name in AVAILABLE_MODELS.values())
     )
 
     await update.message.reply_text(help_text)
@@ -370,9 +367,9 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     add_to_history(user_id, "system", KURISU_SYSTEM_PROMPT)
 
     responses = [
-        "Ха! Думаешь, если очистишь историю, я не запомню твою тупость? ...Хотя ладно, начнём заново.",
-        "Ну вот, опять придётся объяснять тебе всё с нуля. Ты же ничего не запоминаешь!",
-        "Память очищена. Надеюсь, в этот раз ты будешь умнее.",
+        "Ha! Think clearing history makes me forget your nonsense? ...Whatever, let's start over.",
+        "Great, now I have to explain everything from scratch again. You never remember anything!",
+        "Memory cleared. Hope you'll be smarter this time.",
     ]
     await update.message.reply_text(random.choice(responses))
 
@@ -387,10 +384,10 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         keyboard.append([InlineKeyboardButton(label, callback_data=f"model_{model_id}")])
 
     await update.message.reply_text(
-        "🧪 **Выбор нейросетевой модели**\n\n"
-        "Я не просто так провожу исследования, знаешь ли. "
-        "Каждая модель ведёт себя по-разному. Выбирай:\n\n"
-        "✅ — текущая активная модель",
+        "🧪 **Neural Network Model Selection**\n\n"
+        "I don't conduct research for nothing, you know. "
+        "Each model behaves differently. Choose:\n\n"
+        "✅ — currently active model",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -408,24 +405,24 @@ async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         model_name = AVAILABLE_MODELS[model_id]
 
         response = (
-            f"✅ Переключилась на **{model_name}**\n\n"
-            f"Хм... Неплохой выбор. Но, конечно, самая умная здесь я, "
-            f"а не нейросеть. Продолжим эксперименты!"
+            f"✅ Switched to **{model_name}**\n\n"
+            f"Hmm... Not a bad choice. But of course, the smartest one here is me, "
+            f"not the neural network. Let's continue the experiments!"
         )
         await query.edit_message_text(response, parse_mode="Markdown")
     else:
-        await query.edit_message_text("Неизвестная модель. Ты что, в лаборатории пьян?")
+        await query.edit_message_text("Unknown model. What, are you drunk in the lab?")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process a regular chat message and optionally react with a sticker."""
     user_id = update.effective_user.id
     user_message = update.message.text
-    user_name = update.effective_user.first_name or "Окабрин"
+    user_name = update.effective_user.first_name or "Okabe"
 
     await update.message.chat.send_action(action="typing")
 
-    context_message = f"[Сообщение от {user_name}]: {user_message}"
+    context_message = f"[Message from {user_name}]: {user_message}"
     bot_reply, used_model, sticker_emoji = await ask_openrouter(user_id, context_message)
 
     final_reply = bot_reply.strip()
@@ -466,9 +463,9 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logger.error("Error: %s", context.error)
     if update and update.effective_message:
         await update.effective_message.reply_text(
-            "Хм... Похоже, произошла критическая ошибка. "
-            "Даже не знаю, что сказать... Ладно, напиши /help, "
-            "может, там что-то понятно написано."
+            "Hmm... Seems a critical error occurred. "
+            "Don't even know what to say... Fine, write /help, "
+            "maybe there's something understandable there."
         )
 
 
