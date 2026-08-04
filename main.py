@@ -52,6 +52,8 @@ load_env_file()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 
 # Mapping of model identifiers to friendly display names. All models are free.
 AVAILABLE_MODELS = {
@@ -65,6 +67,15 @@ AVAILABLE_MODELS = {
     "google/lyria-3-pro-preview": "🎵 Lyria 3 Pro",
     "nvidia/nemotron-3-super-120b-a12b:free": "⭐ Nemotron Super",
     "openai/gpt-oss-20b:free": "🔓 GPT-OSS 20B",
+    "deepseek/deepseek-chat": "🧊 DeepSeek Chat V3",
+    "deepseek/deepseek-reasoner": "🐋 DeepSeek R1",
+}
+
+# DeepSeek models served by the native DeepSeek API. The value is the model
+# identifier expected by the DeepSeek endpoint, which differs from the key.
+DEEPSEEK_MODELS = {
+    "deepseek/deepseek-chat": "deepseek-chat",
+    "deepseek/deepseek-reasoner": "deepseek-reasoner",
 }
 
 # Kurisu sticker packs. Stickers are matched to a reply by their native emoji.
@@ -170,6 +181,17 @@ def detect_language(text: str) -> str:
     return "ru" if cyrillic_count > latin_count else "en"
 
 
+def get_provider_for_model(model: str) -> Tuple[str, str, str]:
+    """Return (api_url, api_key, model_id) used to call the selected model.
+
+    DeepSeek models go to the native DeepSeek API; everything else is routed
+    through OpenRouter.
+    """
+    if model in DEEPSEEK_MODELS:
+        return DEEPSEEK_URL, DEEPSEEK_API_KEY, DEEPSEEK_MODELS[model]
+    return OPENROUTER_URL, OPENROUTER_API_KEY, model
+
+
 def get_kurisu_greeting(user_name: str = "") -> str:
     """Return a random in-character greeting for the given user name."""
     greetings = [
@@ -229,10 +251,10 @@ def get_sticker_for_emoji(emoji: str) -> Optional[str]:
     return random.choice(file_ids)
 
 
-async def ask_openrouter(
+async def ask_ai(
     user_id: int, message: str, model: str = None, language: str = None
 ) -> Tuple[str, str, Optional[str]]:
-    """Send a request to OpenRouter with the Kurisu prompt.
+    """Send a request to the model's AI provider with the Kurisu prompt.
 
     Returns a tuple of the reply text, the model actually used, and an emoji for
     a matching sticker (or None when the reply carries no strong emotion).
@@ -242,8 +264,19 @@ async def ask_openrouter(
 
     add_to_history(user_id, "user", message)
 
+    api_url, api_key, api_model = get_provider_for_model(model)
+
+    if not api_key:
+        logger.error("API key missing for model: %s", model)
+        return (
+            f"Looks like my {model.split('/')[0].capitalize()} key isn't configured. "
+            "Set the environment variable and restart me!",
+            model,
+            None,
+        )
+
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://t.me/kurisu_bot",
         "X-Title": "Amadeus - Kurisu AI",
@@ -261,26 +294,30 @@ async def ask_openrouter(
     }[language]
     messages.insert(1, {"role": "system", "content": language_instruction})
 
+    # DeepSeek's reasoning model does not support these sampling parameters.
     payload = {
-        "model": model,
+        "model": api_model,
         "messages": messages,
         "max_tokens": 220,
-        "temperature": 0.9,
-        "top_p": 0.9,
-        "frequency_penalty": 0.3,
-        "presence_penalty": 0.3,
     }
+    if api_model != "deepseek-reasoner":
+        payload.update({
+            "temperature": 0.9,
+            "top_p": 0.9,
+            "frequency_penalty": 0.3,
+            "presence_penalty": 0.3,
+        })
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                OPENROUTER_URL, headers=headers, json=payload, timeout=90
+                api_url, headers=headers, json=payload, timeout=90
             ) as response:
                 if response.status == 200:
                     data = await response.json()
 
                     if data.get("error"):
-                        logger.error("OpenRouter API error: %s", data["error"])
+                        logger.error("AI API error: %s", data["error"])
                         return (
                             "Hmm... My neural interface glitched. "
                             "Try asking again, I'm quick, you know!",
@@ -290,7 +327,7 @@ async def ask_openrouter(
 
                     choices = data.get("choices") or []
                     if not choices:
-                        logger.error("OpenRouter returned no choices: %s", str(data)[:500])
+                        logger.error("AI API returned no choices: %s", str(data)[:500])
                         return (
                             "Seems I spaced out for a second and didn't catch that. "
                             "Could you repeat that, please?",
@@ -299,7 +336,7 @@ async def ask_openrouter(
                         )
 
                     bot_reply = choices[0]["message"]["content"]
-                    used_model = data.get("model", model)
+                    used_model = model
 
                     sticker_emoji = None
                     tag_match = STICKER_TAG_RE.search(bot_reply)
@@ -311,7 +348,7 @@ async def ask_openrouter(
                     return bot_reply, used_model, sticker_emoji
 
                 error_text = await response.text()
-                logger.error("OpenRouter error %s: %s", response.status, error_text[:500])
+                logger.error("AI API error %s: %s", response.status, error_text[:500])
                 return (
                     f"Hmm... Looks like my neural interface crashed. "
                     f"Error code: {response.status}. "
@@ -325,7 +362,7 @@ async def ask_openrouter(
             "Fine, guess the servers are overloaded... Try again.",
         ), model, None
     except Exception:
-        logger.exception("Unexpected OpenRouter error")
+        logger.exception("Unexpected AI API error")
         return (
             "Oops, looks like I had a little glitch. "
             "Don't worry, I'm fine — just repeat what you wanted!",
@@ -440,7 +477,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     context_message = f"[Message from {user_name}]: {user_message}"
     language = detect_language(user_message)
-    bot_reply, used_model, sticker_emoji = await ask_openrouter(
+    bot_reply, used_model, sticker_emoji = await ask_ai(
         user_id, context_message, language=language
     )
 

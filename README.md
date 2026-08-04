@@ -1,12 +1,13 @@
 # 🧠 Amadeus — Makise Kurisu AI Bot
 
-A Telegram chat bot powered by OpenRouter that brings **Makise Kurisu** (Amadeus) from *Steins;Gate* to life. Features natural conversation, multi-model support, and automatic sticker reactions matched to her mood.
+A Telegram chat bot that brings **Makise Kurisu** (Amadeus) from *Steins;Gate* to life. Features natural conversation, multi-model support, and automatic sticker reactions matched to her mood.
 
 ## ✨ Features
 
 - **Authentic Persona:** Lively tsundere banter, custom greetings, and in-character responses.
 - **Emotion-Based Stickers:** Contextual sticker reactions from the official Kurisu sticker packs (`kurisu_I` and `kurisu_II`), gated by emotion and cooldowns.
-- **Multi-Model Support:** Switch between various LLMs on the fly using `/model`.
+- **Multi-Provider & Multi-Model Support:** Switch between free OpenRouter models and DeepSeek (Chat V3 / R1) on the fly using `/model`.
+- **Language Aware:** Automatically replies in the language the user writes in (Russian or English).
 - **Privacy & Security:** Zero hardcoded API keys; loads credentials cleanly via `.env` or environment variables.
 
 ## 🚀 Quick Start
@@ -33,6 +34,9 @@ Edit `.env`:
 ```env
 TELEGRAM_TOKEN=your_telegram_bot_token_from_botfather
 OPENROUTER_API_KEY=your_openrouter_api_key
+
+# Optional: enables the DeepSeek models (Chat V3 / R1)
+DEEPSEEK_API_KEY=your_deepseek_api_key
 ```
 
 ### 3. Run the Bot
