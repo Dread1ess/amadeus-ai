@@ -121,7 +121,7 @@ STICKERS (VERY IMPORTANT):
 - Tag format at the end of reply: [sticker=😠] or [sticker=😳]. The tag is internal, don't show it.
 - Allowed emojis for the tag: 😠 😡 😒 😳 😯 😮💨 😵💫 🥱 😬 😊 😃 😄 😎 😌 🙂 🤗 🙃 👍 👋 🤔 🧐 😴 😤 🤕 😦 😐 👌 🫣 🥴
 
-REPLY EXCLUSIVELY IN ENGLISH!"""
+Follow the language instruction given in the system messages."""
 
 # Per-user conversation history and selected model.
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
@@ -161,6 +161,13 @@ def get_user_model(user_id: int) -> str:
     if user_id not in user_models:
         user_models[user_id] = "google/gemma-4-26b-a4b-it:free"
     return user_models[user_id]
+
+
+def detect_language(text: str) -> str:
+    """Return 'ru' if the text is predominantly Cyrillic, otherwise 'en'."""
+    cyrillic_count = sum(1 for char in text if "\u0400" <= char <= "\u04ff")
+    latin_count = sum(1 for char in text if char.isascii() and char.isalpha())
+    return "ru" if cyrillic_count > latin_count else "en"
 
 
 def get_kurisu_greeting(user_name: str = "") -> str:
@@ -223,7 +230,7 @@ def get_sticker_for_emoji(emoji: str) -> Optional[str]:
 
 
 async def ask_openrouter(
-    user_id: int, message: str, model: str = None
+    user_id: int, message: str, model: str = None, language: str = None
 ) -> Tuple[str, str, Optional[str]]:
     """Send a request to OpenRouter with the Kurisu prompt.
 
@@ -244,6 +251,15 @@ async def ask_openrouter(
 
     messages = get_user_history(user_id).copy()
     messages.insert(0, {"role": "system", "content": KURISU_SYSTEM_PROMPT})
+
+    if language is None:
+        language = detect_language(message)
+
+    language_instruction = {
+        "ru": "Пользователь пишет на русском. Отвечай на русском языке.",
+        "en": "The user is writing in English. Reply in English.",
+    }[language]
+    messages.insert(1, {"role": "system", "content": language_instruction})
 
     payload = {
         "model": model,
@@ -423,7 +439,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.chat.send_action(action="typing")
 
     context_message = f"[Message from {user_name}]: {user_message}"
-    bot_reply, used_model, sticker_emoji = await ask_openrouter(user_id, context_message)
+    language = detect_language(user_message)
+    bot_reply, used_model, sticker_emoji = await ask_openrouter(
+        user_id, context_message, language=language
+    )
 
     final_reply = bot_reply.strip()
 
