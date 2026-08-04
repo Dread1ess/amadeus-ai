@@ -130,8 +130,8 @@ EMOJI_FALLBACK_MAP = {
 
 # Stickers are never sent on every reply. These settings limit how often they
 # appear even when the model marks a reply as emotional.
-STICKER_CHANCE = 0.5
-STICKER_COOLDOWN = 3
+STICKER_CHANCE = 0.7
+STICKER_COOLDOWN = 2
 
 # In-memory sticker index: normalized emoji -> list of sticker file ids.
 sticker_cache: Dict[str, List[str]] = {}
@@ -171,6 +171,7 @@ COMMUNICATION STYLE (VERY IMPORTANT):
 
 STICKERS (VERY IMPORTANT):
 - Add the tag RARELY — maximum 1 in 4-5 replies. Only when the emotion is genuinely vivid and appropriate: unexpected surprise, a funny joke, strong embarrassment, a burst of playful "anger".
+- If the user EXPLICITLY asks to see a sticker (writes "sticker", "стикер", "send a sticker", "покажи стикер"), you MUST end your reply with a fitting [sticker=…] tag.
 - Normal replies, simple questions, neutral phrases — WITHOUT a tag.
 - If in doubt — DON'T add a tag. Better no sticker than an extra one.
 - Tag format at the end of reply: [sticker=😠] or [sticker=😳]. The tag is internal, don't show it.
@@ -285,6 +286,12 @@ def get_sticker_for_emoji(emoji: str) -> Optional[str]:
     if not file_ids:
         return None
     return random.choice(file_ids)
+
+
+def get_random_sticker() -> Optional[str]:
+    """Return a random sticker file id from any loaded pack, or None."""
+    all_ids = [file_id for file_ids in sticker_cache.values() for file_id in file_ids]
+    return random.choice(all_ids) if all_ids else None
 
 
 def detect_emoji_in_text(text: str) -> Optional[str]:
@@ -512,15 +519,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if cooldown > 0:
         sticker_cooldown[user_id] = cooldown - 1
 
-    if sticker_emoji and sticker_cooldown.get(user_id, 0) <= 0 and random.random() < STICKER_CHANCE:
+    # An explicit request for a sticker always sends one, bypassing the random
+    # chance and the cooldown.
+    explicit_request = "стикер" in user_message.lower() or "sticker" in user_message.lower()
+
+    if explicit_request or (
+        sticker_emoji and sticker_cooldown.get(user_id, 0) <= 0 and random.random() < STICKER_CHANCE
+    ):
         try:
             await load_sticker_packs(context.bot)
-            sticker_file_id = get_sticker_for_emoji(sticker_emoji)
+            sticker_file_id = get_sticker_for_emoji(sticker_emoji) if sticker_emoji else None
+            if not sticker_file_id:
+                sticker_file_id = get_random_sticker()
             if sticker_file_id:
                 await update.message.reply_sticker(sticker_file_id)
                 sticker_cooldown[user_id] = STICKER_COOLDOWN
             else:
-                logger.info("No sticker found for emoji: %s", sticker_emoji)
+                logger.info("No sticker available for emoji: %s", sticker_emoji)
         except Exception as e:
             logger.warning("Failed to send sticker: %s", e)
 
