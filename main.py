@@ -128,9 +128,8 @@ EMOJI_FALLBACK_MAP = {
     "🥲": "😌", "🫠": "🥴", "🤭": "🙃",
 }
 
-# Stickers are never sent on every reply. These settings limit how often they
-# appear even when the model marks a reply as emotional.
-STICKER_CHANCE = 0.7
+# Stickers follow the model's emotion tag, limited only by a short cooldown so
+# they are not spammed on consecutive replies.
 STICKER_COOLDOWN = 2
 
 # In-memory sticker index: normalized emoji -> list of sticker file ids.
@@ -519,13 +518,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if cooldown > 0:
         sticker_cooldown[user_id] = cooldown - 1
 
-    # An explicit request for a sticker always sends one, bypassing the random
-    # chance and the cooldown.
+    # An explicit request for a sticker always sends one, bypassing the
+    # cooldown. Otherwise a sticker follows whenever the reply carries a strong
+    # emotion (subject only to the cooldown to avoid spamming).
     explicit_request = "стикер" in user_message.lower() or "sticker" in user_message.lower()
 
-    if explicit_request or (
-        sticker_emoji and sticker_cooldown.get(user_id, 0) <= 0 and random.random() < STICKER_CHANCE
-    ):
+    if explicit_request or (sticker_emoji and sticker_cooldown.get(user_id, 0) <= 0):
         try:
             await load_sticker_packs(context.bot)
             sticker_file_id = get_sticker_for_emoji(sticker_emoji) if sticker_emoji else None
