@@ -10,6 +10,7 @@ import asyncio
 import random
 import re
 import os
+import time
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -18,12 +19,11 @@ except ImportError as e:
     raise ImportError("Missing dependency: aiohttp. Install it with `pip install aiohttp`.") from e
 
 try:
-    from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram import Update
     from telegram.ext import (
         Application,
         CommandHandler,
         MessageHandler,
-        CallbackQueryHandler,
         ContextTypes,
         filters,
     )
@@ -55,7 +55,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 
-# Mapping of model identifiers to friendly display names. All models are free.
+# Registry of models the bot knows about, with friendly display names.
 AVAILABLE_MODELS = {
     "inclusionai/ling-3.0-flash:free": "⚡ Ling 3.0 Flash",
     "poolside/laguna-s-2.1:free": "🌊 Laguna S 2.1",
@@ -71,12 +71,34 @@ AVAILABLE_MODELS = {
     "deepseek/deepseek-reasoner": "🐋 DeepSeek R1",
 }
 
+# Automatic fallback chain. Models are tried in order; on failure the bot moves
+# to the next one. Free OpenRouter models come first, DeepSeek (paid credits)
+# serves as the last resort so a user almost always gets an answer.
+AUTO_MODEL_ORDER = [
+    "google/gemma-4-26b-a4b-it:free",
+    "openai/gpt-oss-20b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "inclusionai/ling-3.0-flash:free",
+    "poolside/laguna-s-2.1:free",
+    "poolside/laguna-xs-2.1:free",
+    "cohere/north-mini-code:free",
+    "nvidia/nemotron-3.5-content-safety:free",
+    "deepseek/deepseek-chat",
+    "deepseek/deepseek-reasoner",
+]
+
 # DeepSeek models served by the native DeepSeek API. The value is the model
 # identifier expected by the DeepSeek endpoint, which differs from the key.
 DEEPSEEK_MODELS = {
     "deepseek/deepseek-chat": "deepseek-chat",
     "deepseek/deepseek-reasoner": "deepseek-reasoner",
 }
+
+# Per-attempt request timeout and how long a failing model is skipped.
+MODEL_TIMEOUT = 25
+MODEL_COOLDOWN_SECONDS = 60
+model_cooldown_until: Dict[str, float] = {}
 
 # Kurisu sticker packs. Stickers are matched to a reply by their native emoji.
 STICKER_PACKS = ["kurisu_II", "kurisu_I"]
@@ -156,9 +178,8 @@ STICKERS (VERY IMPORTANT):
 
 Follow the language instruction given in the system messages."""
 
-# Per-user conversation history and selected model.
+# Per-user conversation history.
 user_sessions: Dict[int, List[Dict[str, str]]] = {}
-user_models: Dict[int, str] = {}
 MAX_HISTORY = 30
 
 logging.basicConfig(
@@ -187,13 +208,6 @@ def clear_history(user_id: int) -> None:
     """Reset the chat history for a user."""
     if user_id in user_sessions:
         user_sessions[user_id] = []
-
-
-def get_user_model(user_id: int) -> str:
-    """Return the model selected by the user, defaulting to Gemma 4 26B."""
-    if user_id not in user_models:
-        user_models[user_id] = "google/gemma-4-26b-a4b-it:free"
-    return user_models[user_id]
 
 
 def detect_language(text: str) -> str:
@@ -289,48 +303,20 @@ def detect_emoji_in_text(text: str) -> Optional[str]:
     return None
 
 
-async def ask_ai(
-    user_id: int, message: str, model: str = None, language: str = None
-) -> Tuple[str, str, Optional[str]]:
-    """Send a request to the model's AI provider with the Kurisu prompt.
+async def call_model(
+    api_url: str, api_key: str, api_model: str, messages: List[Dict[str, str]], model_key: str
+) -> Optional[str]:
+    """Call a single AI provider and return the reply text, or None on failure.
 
-    Returns a tuple of the reply text, the model actually used, and an emoji for
-    a matching sticker (or None when the reply carries no strong emotion).
+    Retryable failures (rate limits, 5xx, timeouts, malformed responses) put the
+    model on a short cooldown so the fallback loop does not hammer it.
     """
-    if model is None:
-        model = get_user_model(user_id)
-
-    add_to_history(user_id, "user", message)
-
-    api_url, api_key, api_model = get_provider_for_model(model)
-
-    if not api_key:
-        logger.error("API key missing for model: %s", model)
-        return (
-            f"Looks like my {model.split('/')[0].capitalize()} key isn't configured. "
-            "Set the environment variable and restart me!",
-            model,
-            None,
-        )
-
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://t.me/kurisu_bot",
         "X-Title": "Amadeus - Kurisu AI",
     }
-
-    messages = get_user_history(user_id).copy()
-    messages.insert(0, {"role": "system", "content": KURISU_SYSTEM_PROMPT})
-
-    if language is None:
-        language = detect_language(message)
-
-    language_instruction = {
-        "ru": "Пользователь пишет на русском. Отвечай на русском языке.",
-        "en": "The user is writing in English. Reply in English.",
-    }[language]
-    messages.insert(1, {"role": "system", "content": language_instruction})
 
     # DeepSeek's reasoning model does not support these sampling parameters.
     payload = {
@@ -349,73 +335,101 @@ async def ask_ai(
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                api_url, headers=headers, json=payload, timeout=90
+                api_url, headers=headers, json=payload, timeout=MODEL_TIMEOUT
             ) as response:
                 if response.status == 200:
                     data = await response.json()
 
                     if data.get("error"):
-                        logger.error("AI API error: %s", data["error"])
-                        return (
-                            "Hmm... My neural interface glitched. "
-                            "Try asking again, I'm quick, you know!",
-                            model,
-                            None,
-                        )
+                        logger.error("AI API error for %s: %s", model_key, data["error"])
+                        return None
 
                     choices = data.get("choices") or []
                     if not choices:
-                        logger.error("AI API returned no choices: %s", str(data)[:500])
-                        return (
-                            "Seems I spaced out for a second and didn't catch that. "
-                            "Could you repeat that, please?",
-                            model,
-                            None,
-                        )
+                        logger.error("AI API returned no choices for %s: %s", model_key, str(data)[:500])
+                        return None
 
-                    bot_reply = choices[0]["message"]["content"]
-                    used_model = model
-
-                    sticker_emoji = None
-                    tag_match = STICKER_TAG_RE.search(bot_reply)
-                    if tag_match:
-                        sticker_emoji = tag_match.group(1).strip()
-                        bot_reply = STICKER_TAG_RE.sub("", bot_reply).strip()
-                    else:
-                        sticker_emoji = detect_emoji_in_text(bot_reply)
-
-                    add_to_history(user_id, "assistant", bot_reply)
-                    return bot_reply, used_model, sticker_emoji
+                    return choices[0]["message"]["content"]
 
                 error_text = await response.text()
-                logger.error("AI API error %s: %s", response.status, error_text[:500])
-                return (
-                    f"Hmm... Looks like my neural interface crashed. "
-                    f"Error code: {response.status}. "
-                    f"Idiot! Couldn't set it up properly!",
-                    model,
-                    None,
-                )
+                logger.error("AI API error %s for %s: %s", response.status, model_key, error_text[:500])
+                if response.status == 429 or response.status >= 500:
+                    model_cooldown_until[model_key] = time.time() + MODEL_COOLDOWN_SECONDS
+                return None
     except asyncio.TimeoutError:
-        return (
-            "You fall asleep there? I've been waiting forever! "
-            "Fine, guess the servers are overloaded... Try again.",
-        ), model, None
+        logger.error("AI API timeout for %s", model_key)
+        model_cooldown_until[model_key] = time.time() + MODEL_COOLDOWN_SECONDS
+        return None
     except Exception:
-        logger.exception("Unexpected AI API error")
-        return (
-            "Oops, looks like I had a little glitch. "
-            "Don't worry, I'm fine — just repeat what you wanted!",
-        ), model, None
+        logger.exception("Unexpected AI API error for %s", model_key)
+        model_cooldown_until[model_key] = time.time() + MODEL_COOLDOWN_SECONDS
+        return None
+
+
+def all_models_failed_message(language: str) -> str:
+    """Return a friendly in-character message when every model is unavailable."""
+    return (
+        "Кажется, все мои мозги сейчас перегружены. Попробуй через минуту, ладно?"
+        if language == "ru"
+        else "Seems all my brains are overloaded right now. Try again in a minute, okay?"
+    )
+
+
+async def ask_ai(
+    user_id: int, message: str, language: str = None
+) -> Tuple[str, str, Optional[str]]:
+    """Ask the Kurisu prompt to an AI provider, failing over across models.
+
+    Returns a tuple of the reply text, the model that produced it, and an emoji
+    for a matching sticker (or None). Errors and rate limits are handled
+    silently by trying the next model in the chain.
+    """
+    add_to_history(user_id, "user", message)
+
+    if language is None:
+        language = detect_language(message)
+
+    messages = get_user_history(user_id).copy()
+    messages.insert(0, {"role": "system", "content": KURISU_SYSTEM_PROMPT})
+
+    language_instruction = {
+        "ru": "Пользователь пишет на русском. Отвечай на русском языке.",
+        "en": "The user is writing in English. Reply in English.",
+    }[language]
+    messages.insert(1, {"role": "system", "content": language_instruction})
+
+    for candidate in AUTO_MODEL_ORDER:
+        if model_cooldown_until.get(candidate, 0) > time.time():
+            continue
+
+        api_url, api_key, api_model = get_provider_for_model(candidate)
+        if not api_key:
+            continue
+
+        content = await call_model(api_url, api_key, api_model, messages, candidate)
+        if content is None:
+            continue
+
+        bot_reply = content
+        sticker_emoji = None
+        tag_match = STICKER_TAG_RE.search(bot_reply)
+        if tag_match:
+            sticker_emoji = tag_match.group(1).strip()
+            bot_reply = STICKER_TAG_RE.sub("", bot_reply).strip()
+        else:
+            sticker_emoji = detect_emoji_in_text(bot_reply)
+
+        add_to_history(user_id, "assistant", bot_reply)
+        return bot_reply, candidate, sticker_emoji
+
+    logger.error("All models failed for user %s", user_id)
+    return all_models_failed_message(language), AUTO_MODEL_ORDER[0], None
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command and show the welcome message."""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name or "stranger"
-
-    current_model = get_user_model(user_id)
-    model_name = AVAILABLE_MODELS.get(current_model, current_model)
 
     clear_history(user_id)
     add_to_history(user_id, "system", KURISU_SYSTEM_PROMPT)
@@ -425,29 +439,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Welcome, {user_name}. I'm **Makise Kurisu**.\n\n"
         f"{get_kurisu_greeting(user_name)}\n\n"
         f"📌 **Available commands:**\n"
-        f"/model — Switch AI model\n"
         f"/clear — Clear memory (I'll remember your stupidity anyway!)\n"
         f"/help — Help\n\n"
-        f"⚡ Current model: `{model_name}`"
+        f"⚡ Just talk to me and I'll handle the rest!"
     )
 
     await update.message.reply_text(welcome, parse_mode="Markdown")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /help command and list the available commands and models."""
+    """Handle the /help command and list the available commands."""
     help_text = (
         "🧠 **Amadeus — Makise Kurisu**\n\n"
         "What, can't you read? Fine, I'll explain for the specially gifted:\n\n"
         "**Commands:**\n"
         "/start — Restart the system\n"
-        "/model — Pick another model (I've got plenty!)\n"
         "/clear — Clear history (I'll just forget your nonsense)\n"
         "/help — You're reading it right now\n\n"
-        "**Tip:** I'm a neuroscientist, so ask smart questions. "
-        "But if you're curious about something else — I'll answer that too, "
-        "though with sarcasm.\n\n"
-        "**Available models:**\n" + "\n".join(f"• {name}" for name in AVAILABLE_MODELS.values())
+        "**Tip:** Just chat with me — I pick a working model automatically, "
+        "you don't need to configure anything. "
+        "I'm a neuroscientist, so ask smart questions!"
     )
 
     await update.message.reply_text(help_text)
@@ -467,46 +478,6 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await update.message.reply_text(random.choice(responses))
 
 
-async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /model command and show the inline model picker."""
-    keyboard = []
-    current_model = get_user_model(update.effective_user.id)
-
-    for model_id, model_name in AVAILABLE_MODELS.items():
-        label = f"✅ {model_name}" if model_id == current_model else model_name
-        keyboard.append([InlineKeyboardButton(label, callback_data=f"model_{model_id}")])
-
-    await update.message.reply_text(
-        "🧪 **Neural Network Model Selection**\n\n"
-        "I don't conduct research for nothing, you know. "
-        "Each model behaves differently. Choose:\n\n"
-        "✅ — currently active model",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def model_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle taps on the model picker buttons."""
-    query = update.callback_query
-    await query.answer()
-
-    user_id = update.effective_user.id
-    model_id = query.data.replace("model_", "")
-
-    if model_id in AVAILABLE_MODELS:
-        user_models[user_id] = model_id
-        model_name = AVAILABLE_MODELS[model_id]
-
-        response = (
-            f"✅ Switched to **{model_name}**\n\n"
-            f"Hmm... Not a bad choice. But of course, the smartest one here is me, "
-            f"not the neural network. Let's continue the experiments!"
-        )
-        await query.edit_message_text(response, parse_mode="Markdown")
-    else:
-        await query.edit_message_text("Unknown model. What, are you drunk in the lab?")
-
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process a regular chat message and optionally react with a sticker."""
     user_id = update.effective_user.id
@@ -517,7 +488,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     context_message = f"[Message from {user_name}]: {user_message}"
     language = detect_language(user_message)
-    bot_reply, used_model, sticker_emoji = await ask_ai(
+    bot_reply, _, sticker_emoji = await ask_ai(
         user_id, context_message, language=language
     )
 
@@ -579,8 +550,6 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear_command))
-    application.add_handler(CommandHandler("model", model_command))
-    application.add_handler(CallbackQueryHandler(model_callback, pattern="^model_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
 

@@ -1,12 +1,12 @@
 # 🧠 Amadeus — Makise Kurisu AI Bot
 
-A Telegram chat bot that brings **Makise Kurisu** (Amadeus) from *Steins;Gate* to life. Features natural conversation, multi-model support, and automatic sticker reactions matched to her mood.
+A Telegram chat bot that brings **Makise Kurisu** (Amadeus) from *Steins;Gate* to life. Features natural conversation, automatic model failover, and sticker reactions matched to her mood.
 
 ## ✨ Features
 
 - **Authentic Persona:** Lively tsundere banter, custom greetings, and in-character responses.
+- **Automatic Model Failover:** No configuration needed — the bot picks a working model by itself. If one model hits a rate limit or error, it silently switches to the next, with DeepSeek (Chat V3 / R1) as the last resort.
 - **Emotion-Based Stickers:** Contextual sticker reactions from the official Kurisu sticker packs (`kurisu_I` and `kurisu_II`), gated by emotion and cooldowns.
-- **Multi-Provider & Multi-Model Support:** Switch between free OpenRouter models and DeepSeek (Chat V3 / R1) on the fly using `/model`.
 - **Language Aware:** Automatically replies in the language the user writes in (Russian or English).
 - **Privacy & Security:** Zero hardcoded API keys; loads credentials cleanly via `.env` or environment variables.
 
@@ -48,9 +48,10 @@ python main.py
 ## 📌 Bot Commands
 
 - `/start` — Initialize/restart the Amadeus system
-- `/model` — Select an AI model from the menu
 - `/clear` — Clear chat memory
-- `/help` — Show available commands and models
+- `/help` — Show help
+
+That's it — just talk to the bot and it picks a working model automatically.
 
 ## 📜 License
 
