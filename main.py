@@ -648,20 +648,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """React to a sticker the user sent, in character and only when fitting."""
-    user_id = update.effective_user.id
-    message = update.message
+    """React to a sticker the user sent, in character and only when fitting.
 
-    await load_sticker_packs(context.bot)
-
-    # Rapid sticker spam gets only a cheap emoji reaction, nothing more.
-    now = time.time()
-    if now - sticker_reply_cooldown.get(user_id, 0) < STICKER_REPLY_COOLDOWN:
-        await react_to_message(message, random.choice(STICKER_REACTION_POOL))
-        return
-
-    roll = random.random()
+    Every interaction is best-effort: any failure is logged and swallowed so a
+    sticker can never trigger the global error handler.
+    """
     try:
+        message = update.message
+        if message is None:
+            return
+        user_id = update.effective_user.id if update.effective_user else 0
+
+        await load_sticker_packs(context.bot)
+
+        # Rapid sticker spam gets only a cheap emoji reaction, nothing more.
+        now = time.time()
+        if now - sticker_reply_cooldown.get(user_id, 0) < STICKER_REPLY_COOLDOWN:
+            await react_to_message(message, random.choice(STICKER_REACTION_POOL))
+            return
+
+        roll = random.random()
         if roll < 0.45:
             await react_to_message(message, random.choice(STICKER_REACTION_POOL))
         elif roll < 0.80:
@@ -675,12 +681,12 @@ async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text(random.choice(STICKER_TEXT_REPLIES[language]))
         sticker_reply_cooldown[user_id] = now
     except Exception as e:
-        logger.warning("Failed to react to sticker: %s", e)
+        logger.exception("Failed to react to sticker: %s", e)
 
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log unexpected errors and notify the user with an in-character message."""
-    logger.error("Error: %s", context.error)
+    logger.exception("Error while processing update: %s", context.error)
     if update and update.effective_message:
         await update.effective_message.reply_text(
             "Hmm... Seems a critical error occurred. "
@@ -704,7 +710,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.Sticker, handle_sticker))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
     application.add_error_handler(error_handler)
 
     print("Amadeus (Kurisu) is running. Press Ctrl+C to stop.")
