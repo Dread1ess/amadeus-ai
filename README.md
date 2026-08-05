@@ -31,7 +31,8 @@ cp .env.example .env
 ```
 
 Edit `.env`:
-```env
+
+```txt
 TELEGRAM_TOKEN=your_telegram_bot_token_from_botfather
 OPENROUTER_API_KEY=your_openrouter_api_key
 

@@ -1,0 +1,8 @@
+services:
+  amadeus:
+    build: .
+    image: amadeus-kurisu
+    container_name: amadeus
+    restart: unless-stopped
+    env_file:
+      - .env
