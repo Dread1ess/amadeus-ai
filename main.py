@@ -19,7 +19,7 @@ except ImportError as e:
     raise ImportError("Missing dependency: aiohttp. Install it with `pip install aiohttp`.") from e
 
 try:
-    from telegram import Update
+    from telegram import ReactionTypeEmoji, Update
     from telegram.ext import (
         Application,
         CommandHandler,
@@ -54,22 +54,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
-
-# Registry of models the bot knows about, with friendly display names.
-AVAILABLE_MODELS = {
-    "inclusionai/ling-3.0-flash:free": "⚡ Ling 3.0 Flash",
-    "poolside/laguna-s-2.1:free": "🌊 Laguna S 2.1",
-    "poolside/laguna-xs-2.1:free": "🌊 Laguna XS 2.1",
-    "cohere/north-mini-code:free": "💻 Cohere North Mini",
-    "nvidia/nemotron-3.5-content-safety:free": "🛡️ Nemotron Safety",
-    "nvidia/nemotron-3-ultra-550b-a55b:free": "⚙️ Nemotron Ultra",
-    "google/gemma-4-26b-a4b-it:free": "🧠 Gemma 4 26B",
-    "google/lyria-3-pro-preview": "🎵 Lyria 3 Pro",
-    "nvidia/nemotron-3-super-120b-a12b:free": "⭐ Nemotron Super",
-    "openai/gpt-oss-20b:free": "🔓 GPT-OSS 20B",
-    "deepseek/deepseek-chat": "🧊 DeepSeek Chat V3",
-    "deepseek/deepseek-reasoner": "🐋 DeepSeek R1",
-}
 
 # Automatic fallback chain. Models are tried in order; on failure the bot moves
 # to the next one. Free OpenRouter models come first, DeepSeek (paid credits)
@@ -128,6 +112,45 @@ EMOJI_FALLBACK_MAP = {
     "🥲": "😌", "🫠": "🥴", "🤭": "🙃",
 }
 
+# Telegram message reactions Kurisu may set. Only emojis from the regular
+# (non-premium) reaction set are used so the API accepts them.
+REACTION_FOR_EMOTION = {
+    "😠": "😡", "😡": "😡", "😤": "😡",
+    "😳": "😮", "🫣": "😮", "😯": "😮", "😮💨": "😮", "😵💫": "😮", "🥴": "😮",
+    "🥱": "🥱", "😴": "🥱",
+    "😊": ["🥰", "😍", "❤️"], "😃": ["🥰", "😍", "❤️"], "😄": ["🥰", "😍", "❤️"],
+    "😎": ["🔥", "👍"], "😌": ["🥰", "❤️"], "🙂": ["👍", "❤️"], "🤗": ["🥰", "❤️"],
+    "🙃": ["😁", "😮"], "👍": "👍", "👋": "👍", "👌": "👌",
+    "🤔": "🤔", "🧐": "🤔",
+    "😒": "😐", "😬": "😐", "🤕": "😐", "😦": "😐", "😐": "😐",
+}
+
+# Reaction emojis used when Kurisu reacts to a sticker the user sent.
+STICKER_REACTION_POOL = ["😍", "🥰", "❤️", "👍", "😁", "👏"]
+
+# Short in-character reactions to a user sticker. Kept local so reacting does
+# not consume a model request; picked based on the conversation language.
+STICKER_TEXT_REPLIES = {
+    "ru": [
+        "Fueh?! И что это за стикер такой?!",
+        "Ты серьёзно думаешь, что этим можно меня впечатлить?",
+        "Хм... Ладно, признаю, это было почти мило.",
+        "Ну всё, я официально засчитала это как спам.",
+        "Ишь чего выдумал... Но ладно, продолжай.",
+    ],
+    "en": [
+        "Fueh?! And just what is that sticker supposed to be?!",
+        "You seriously think that's how you impress me?",
+        "Hmm... Fine, I'll admit, that was almost cute.",
+        "Alright, I'm officially counting that as spam.",
+        "Ha! What was that supposed to be... but fine, go on.",
+    ],
+}
+
+# Minimum seconds between text/sticker replies to a user's sticker, so a flood
+# of stickers only gets a cheap emoji reaction and never spams back.
+STICKER_REPLY_COOLDOWN = 3
+
 # Stickers follow the model's emotion tag, limited only by a short cooldown so
 # they are not spammed on consecutive replies.
 STICKER_COOLDOWN = 2
@@ -139,6 +162,9 @@ sticker_lock = asyncio.Lock()
 
 # Per-user counter that enforces the cooldown between stickers.
 sticker_cooldown: Dict[int, int] = {}
+
+# Per-user timestamp of the last text/sticker reply to an incoming sticker.
+sticker_reply_cooldown: Dict[int, float] = {}
 
 # The Kurisu persona prompt. Written in English so the bot responds in English.
 KURISU_SYSTEM_PROMPT = """You are Makise Kurisu (牧瀬 紅莉栖), also known as "Amadeus" — a genius neuroscientist from the Future Gadget Laboratory (Steins;Gate).
@@ -355,6 +381,24 @@ def detect_emoji_in_text(text: str) -> Optional[str]:
     return None
 
 
+def pick_reaction(emotion_emoji: Optional[str]) -> Optional[str]:
+    """Map an emotion emoji to a fitting Telegram reaction emoji, or None."""
+    if not emotion_emoji:
+        return None
+    choice = REACTION_FOR_EMOTION.get(normalize_emoji(emotion_emoji))
+    if isinstance(choice, list):
+        return random.choice(choice)
+    return choice
+
+
+async def react_to_message(message, emoji: str) -> None:
+    """Set a Telegram emoji reaction on a message, ignoring unsupported emojis."""
+    try:
+        await message.set_reaction(reaction=[ReactionTypeEmoji(emoji=emoji)])
+    except Exception as e:
+        logger.warning("Failed to set reaction %s: %s", emoji, e)
+
+
 async def call_model(
     api_url: str, api_key: str, api_model: str, messages: List[Dict[str, str]], model_key: str
 ) -> Optional[str]:
@@ -510,7 +554,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/help — You're reading it right now\n\n"
         "**Tip:** Just chat with me — I pick a working model automatically, "
         "you don't need to configure anything. "
-        "I'm a neuroscientist, so ask smart questions!"
+        "I'm a neuroscientist, so ask smart questions!\n\n"
+        "**Reactions & stickers:** I react to your messages when I feel like it, "
+        "and sending me a sticker usually earns a reaction in return."
     )
 
     await update.message.reply_text(help_text)
@@ -539,6 +585,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.chat.send_action(action="typing")
 
     context_message = f"[Message from {user_name}]: {user_message}"
+    quoted = update.message.reply_to_message
+    if quoted:
+        if quoted.text:
+            context_message = (
+                f"[Message from {user_name} replying to your earlier message "
+                f'"{quoted.text[:200]}"]: {user_message}'
+            )
+        elif quoted.sticker:
+            context_message = (
+                f"[Message from {user_name} replying to one of your stickers]: {user_message}"
+            )
+
     language = resolve_language(user_id, user_message)
     bot_reply, _, sticker_emoji = await ask_ai(
         user_id, context_message, language=language
@@ -583,6 +641,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.warning("Failed to send sticker: %s", e)
 
+    # An emotional reply also gets a fitting emoji reaction on the user's message.
+    reaction_emoji = pick_reaction(sticker_emoji)
+    if reaction_emoji:
+        await react_to_message(update.message, reaction_emoji)
+
+
+async def handle_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """React to a sticker the user sent, in character and only when fitting."""
+    user_id = update.effective_user.id
+    message = update.message
+
+    await load_sticker_packs(context.bot)
+
+    # Rapid sticker spam gets only a cheap emoji reaction, nothing more.
+    now = time.time()
+    if now - sticker_reply_cooldown.get(user_id, 0) < STICKER_REPLY_COOLDOWN:
+        await react_to_message(message, random.choice(STICKER_REACTION_POOL))
+        return
+
+    roll = random.random()
+    try:
+        if roll < 0.45:
+            await react_to_message(message, random.choice(STICKER_REACTION_POOL))
+        elif roll < 0.80:
+            sticker_file_id = get_random_sticker()
+            if sticker_file_id:
+                await message.reply_sticker(sticker_file_id)
+            else:
+                await react_to_message(message, random.choice(STICKER_REACTION_POOL))
+        else:
+            language = resolve_language(user_id, "")
+            await message.reply_text(random.choice(STICKER_TEXT_REPLIES[language]))
+        sticker_reply_cooldown[user_id] = now
+    except Exception as e:
+        logger.warning("Failed to react to sticker: %s", e)
+
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log unexpected errors and notify the user with an in-character message."""
@@ -610,6 +704,7 @@ def main() -> None:
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Sticker, handle_sticker))
     application.add_error_handler(error_handler)
 
     print("Amadeus (Kurisu) is running. Press Ctrl+C to stop.")
