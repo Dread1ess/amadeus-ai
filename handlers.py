@@ -20,7 +20,7 @@ from config import (
 )
 from language import resolve_language
 from memory import add_to_history, clear_history
-from persona import KURISU_SYSTEM_PROMPT, get_kurisu_greeting
+from persona import KURISU_SYSTEM_PROMPT
 from stickers import (
     STICKER_REACTION_POOL,
     get_random_sticker,
@@ -35,34 +35,12 @@ from stickers import (
 logger = logging.getLogger(__name__)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /start command and show the welcome message."""
-    user_id = update.effective_user.id
-    user_name = update.effective_user.first_name or "stranger"
-
-    clear_history(user_id)
-    add_to_history(user_id, "system", KURISU_SYSTEM_PROMPT)
-
-    welcome = (
-        f"🧠 **Amadeus System v.2.0**\n"
-        f"Welcome, {user_name}. I'm **Makise Kurisu**.\n\n"
-        f"{get_kurisu_greeting(user_name)}\n\n"
-        f"📌 **Available commands:**\n"
-        f"/clear — Clear memory (I'll remember your stupidity anyway!)\n"
-        f"/help — Help\n\n"
-        f"⚡ Just talk to me and I'll handle the rest!"
-    )
-
-    await update.message.reply_text(welcome, parse_mode="Markdown")
-
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /help command and list the available commands."""
     help_text = (
         "🧠 **Amadeus — Makise Kurisu**\n\n"
         "What, can't you read? Fine, I'll explain for the specially gifted:\n\n"
         "**Commands:**\n"
-        "/start — Restart the system\n"
         "/clear — Clear history (I'll just forget your nonsense)\n"
         "/help — You're reading it right now\n\n"
         "**Tip:** Just chat with me — I pick a working model automatically, "

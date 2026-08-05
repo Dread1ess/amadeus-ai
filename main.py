@@ -19,7 +19,6 @@ from handlers import (
     handle_message,
     handle_sticker,
     help_command,
-    start,
 )
 
 
@@ -34,7 +33,6 @@ def main() -> None:
 
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
