@@ -222,11 +222,45 @@ def clear_history(user_id: int) -> None:
         user_sessions[user_id] = []
 
 
-def detect_language(text: str) -> str:
-    """Return 'ru' if the text is predominantly Cyrillic, otherwise 'en'."""
+def _script_counts(text: str) -> Tuple[int, int]:
+    """Return (cyrillic_count, latin_count) for the given text."""
     cyrillic_count = sum(1 for char in text if "\u0400" <= char <= "\u04ff")
     latin_count = sum(1 for char in text if char.isascii() and char.isalpha())
+    return cyrillic_count, latin_count
+
+
+def detect_language(text: str) -> str:
+    """Return 'ru' if the text is predominantly Cyrillic, otherwise 'en'."""
+    cyrillic_count, latin_count = _script_counts(text)
     return "ru" if cyrillic_count > latin_count else "en"
+
+
+def history_has_cyrillic(user_id: int) -> bool:
+    """Return True if the user's recent history is written in Russian.
+
+    Only the presence of Cyrillic counts, so the English "[Message from ...]:"
+    prefix that wraps every stored user message can never bias the result.
+    """
+    for message in get_user_history(user_id):
+        if message["role"] == "system":
+            continue
+        cyrillic_count, _ = _script_counts(message["content"])
+        if cyrillic_count > 0:
+            return True
+    return False
+
+
+def resolve_language(user_id: int, text: str) -> str:
+    """Pick the reply language, keeping continuity with the conversation.
+
+    A clearly Cyrillic message forces Russian. Otherwise the language of the
+    existing conversation is kept, so transliterated or mixed-script messages
+    do not flip the bot to English mid-dialogue.
+    """
+    cyrillic_count, latin_count = _script_counts(text)
+    if cyrillic_count > latin_count:
+        return "ru"
+    return "ru" if history_has_cyrillic(user_id) else "en"
 
 
 def get_provider_for_model(model: str) -> Tuple[str, str, str]:
@@ -405,7 +439,7 @@ async def ask_ai(
     add_to_history(user_id, "user", message)
 
     if language is None:
-        language = detect_language(message)
+        language = resolve_language(user_id, message)
 
     messages = get_user_history(user_id).copy()
     messages.insert(0, {"role": "system", "content": KURISU_SYSTEM_PROMPT})
@@ -505,7 +539,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.chat.send_action(action="typing")
 
     context_message = f"[Message from {user_name}]: {user_message}"
-    language = detect_language(user_message)
+    language = resolve_language(user_id, user_message)
     bot_reply, _, sticker_emoji = await ask_ai(
         user_id, context_message, language=language
     )
