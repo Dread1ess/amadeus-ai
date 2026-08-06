@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -29,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 # How long a failing model is skipped after an error.
 model_cooldown_until: Dict[str, float] = {}
+
+# Reasoning models sometimes leak their chain-of-thought into the reply
+# wrapped in these tags. We strip them so the user only sees the final answer.
+_REASONING_TAG_RE = re.compile(r"<\s*(?:think|thinking|reasoning)\s*>.*?<\s*/\s*(?:think|thinking|reasoning)\s*>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(content: str) -> str:
+    """Remove chain-of-thought blocks (e.g. <think>...</think>) from a reply."""
+    return _REASONING_TAG_RE.sub("", content).strip()
 
 
 def get_provider_for_model(model: str) -> Tuple[str, str, str]:
@@ -88,7 +98,7 @@ async def call_model(
                         logger.warning("AI API returned no choices for %s: %s", model_key, str(data)[:500])
                         return None
 
-                    return choices[0]["message"]["content"]
+                    return strip_reasoning(choices[0]["message"]["content"])
 
                 error_text = await response.text()
                 logger.warning("AI API error %s for %s: %s", response.status, model_key, error_text[:300])

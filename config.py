@@ -44,14 +44,12 @@ AUTO_MODEL_ORDER = [
     "cohere/north-mini-code:free",
     "nvidia/nemotron-3.5-content-safety:free",
     "deepseek/deepseek-chat",
-    "deepseek/deepseek-reasoner",
 ]
 
 # DeepSeek models served by the native DeepSeek API. The value is the model
 # identifier expected by the DeepSeek endpoint, which differs from the key.
 DEEPSEEK_MODELS = {
     "deepseek/deepseek-chat": "deepseek-chat",
-    "deepseek/deepseek-reasoner": "deepseek-reasoner",
 }
 
 # Per-attempt request timeout and how long a failing model is skipped.
