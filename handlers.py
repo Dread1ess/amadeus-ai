@@ -69,6 +69,8 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Process a regular chat message and optionally react with a sticker."""
+    if update.message is None:
+        return
     user_id = update.effective_user.id
     user_message = update.message.text
     user_name = update.effective_user.first_name or "Okabe"
